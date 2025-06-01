@@ -1,0 +1,150 @@
+# Dex MCP Server
+
+A Model Context Protocol (MCP) server that provides AI agents with comprehensive contact relationship management capabilities through the Dex API.
+
+## Features
+
+### 🚀 Contact Management
+- **Create, Read, Update, Delete** contacts with full details
+- **Search contacts** by name, email, or company
+- **Comprehensive contact fields**: name, company, job title, description, emails, phone numbers
+
+### 📝 Note Management  
+- **Contact-linked notes** stored as timeline items
+- **Create, update, delete** notes for any contact
+- **Search notes** by content across all contacts
+- **Pagination support** for large note collections
+
+### ⏰ Reminder Management
+- **Set reminders** linked to specific contacts
+- **Complete, update, delete** reminders as needed
+- **Search reminders** by text content
+- **Recurrence support** for recurring follow-ups
+- **Due date tracking** with proper date formatting
+
+## Installation
+
+### Prerequisites
+- Node.js 18 or later
+- Dex API account and API key
+
+### Setup
+
+1. Clone this repository:
+```bash
+git clone https://github.com/alpabon73/dex-mcp-server.git
+cd dex-mcp-server
+```
+
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Configure your Dex API key in `src/index.ts`:
+```typescript
+const API_KEY = 'your-dex-api-key-here';
+```
+
+4. Build the server:
+```bash
+npm run build
+```
+
+## Usage
+
+### Standalone Usage
+```bash
+npm start
+```
+
+### With AnythingLLM
+Add to your MCP server configuration:
+```json
+{
+  "mcpServers": {
+    "dex-mcp": {
+      "command": "/usr/local/bin/node",
+      "args": ["/path/to/dex-mcp-server/dist/index.js"],
+      "env": {}
+    }
+  }
+}
+```
+
+## Available Tools
+
+### Contact Tools (6)
+- `get_contacts` - Retrieve contacts with pagination
+- `get_contact_by_id` - Get specific contact details
+- `search_contacts` - Search by name/company/email
+- `create_contact` - Add new contacts
+- `update_contact` - Modify existing contacts
+- `delete_contact` - Remove contacts
+
+### Note Tools (6)
+- `get_notes_by_contact` - Get all notes for a contact
+- `get_all_notes` - Retrieve all notes with pagination
+- `search_notes` - Search notes by content
+- `create_note` - Add notes to contacts
+- `update_note` - Modify existing notes
+- `delete_note` - Remove notes
+
+### Reminder Tools (6)
+- `get_reminders_by_contact` - Get contact reminders
+- `get_all_reminders` - Retrieve all reminders with pagination
+- `search_reminders` - Search reminders by text
+- `create_reminder` - Set new reminders
+- `update_reminder` - Modify existing reminders
+- `complete_reminder` - Mark reminders as done
+- `delete_reminder` - Remove reminders
+
+## Example Use Cases
+
+- **"Add John Smith from TechCorp as a new contact"**
+- **"Set a reminder to follow up with Sarah next week"**
+- **"Search for all notes about the ABC project"**
+- **"Update Mike's job title to Senior Engineer"**
+- **"Show me all pending reminders for this month"**
+- **"Create a note about today's meeting with the client"**
+
+## Development
+
+### Scripts
+- `npm run build` - Compile TypeScript
+- `npm run dev` - Run with ts-node for development
+- `npm run watch` - Watch mode compilation
+- `npm start` - Run compiled server
+
+### Architecture
+- **TypeScript** for type safety
+- **Zod** for schema validation
+- **Axios** for HTTP requests to Dex API
+- **MCP SDK** for protocol implementation
+
+## API Integration
+
+This server integrates with the Dex API using:
+- **GraphQL endpoint**: `https://api.getdex.com/v1/graphql`
+- **Timeline items** for note storage
+- **Reminders table** with contact junction
+- **Proper pagination** and search capabilities
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Support
+
+For issues related to:
+- **Dex API**: Check [Dex documentation](https://docs.getdex.com)
+- **MCP Protocol**: See [MCP specification](https://spec.modelcontextprotocol.io)
+- **This server**: Open an issue in this repository
