@@ -62,7 +62,7 @@ npm start
 Add to your MCP server configuration:
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "dex-mcp": {
       "command": "/usr/local/bin/node",
       "args": ["/path/to/dex-mcp-server/dist/index.js"],
@@ -98,6 +98,29 @@ Add to your MCP server configuration:
 - `update_reminder` - Modify existing reminders
 - `complete_reminder` - Mark reminders as done
 - `delete_reminder` - Remove reminders
+
+## Allowed Meeting Types for Notes
+
+When creating a note, you may specify the meeting type using either the display name or the Dex API enum value. The following table shows the accepted values:
+
+| Display Name      | Dex API Enum Value   |
+|-------------------|---------------------|
+| Note              | note                |
+| Call              | call                |
+| Email             | email               |
+| Text/Messaging    | text_messaging      |
+| Linkedin          | linkedin            |
+| Skype/Teams       | skype_teams         |
+| Slack             | slack               |
+| Coffee            | coffee              |
+| Networking        | networking          |
+| Party/Social      | party_social        |
+| Other             | other               |
+| Meal              | meal                |
+| Meeting           | meeting             |
+| Custom            | custom              |
+
+You may use any of the above display names (case-insensitive, spaces and slashes allowed) or the exact enum value. The system will automatically map your input to the correct Dex API value.
 
 ## Example Use Cases
 

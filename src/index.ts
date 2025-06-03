@@ -14,6 +14,12 @@ import { z } from 'zod';
 const DEX_API_BASE_URL = 'https://api.getdex.com/v1/graphql';
 const API_KEY = '8470e661c4efe0f';
 
+// UUID validation function
+const isValidUUID = (uuid: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+};
+
 // Zod schemas for validation
 const ContactSchema = z.object({
   id: z.string().optional(),
@@ -40,7 +46,7 @@ const ReminderSchema = z.object({
   is_complete: z.boolean().optional(),
 });
 
-class DexAPIClient {
+export class DexAPIClient {
   private client: AxiosInstance;
 
   constructor() {
@@ -102,6 +108,11 @@ class DexAPIClient {
   }
 
   async getContactById(id: string) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid UUID format for contact ID: "${id}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       query GetContact($id: uuid!) {
         contacts_by_pk(id: $id) {
@@ -155,6 +166,11 @@ class DexAPIClient {
   }
 
   async updateContact(id: string, updates: Partial<z.infer<typeof ContactSchema>>) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid UUID format for contact ID: "${id}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       mutation UpdateContact($id: uuid!, $updates: contacts_set_input!) {
         update_contacts_by_pk(pk_columns: {id: $id}, _set: $updates) {
@@ -172,6 +188,11 @@ class DexAPIClient {
   }
 
   async deleteContact(id: string) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid UUID format for contact ID: "${id}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       mutation DeleteContact($id: uuid!) {
         delete_contacts_by_pk(id: $id) {
@@ -185,6 +206,11 @@ class DexAPIClient {
 
   // Note operations (using timeline_items)
   async getNotesByContact(contactId: string) {
+    // Validate UUID format
+    if (!isValidUUID(contactId)) {
+      throw new Error(`Invalid UUID format for contactId: "${contactId}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       query GetNotesByContact($contactId: uuid!) {
         timeline_items(
@@ -263,47 +289,94 @@ class DexAPIClient {
     return this.executeQuery(query, { searchTerm: `%${searchTerm}%` });
   }
 
-  async createNote(contactId: string, note: string, eventTime?: string) {
-    const timelineItemQuery = `
-      mutation CreateTimelineItem($timelineItem: timeline_items_insert_input!) {
-        insert_timeline_items_one(object: $timelineItem) {
-          id
-          note
-          event_time
-          created_at
-        }
-      }
-    `;
-    
-    // First create the timeline item
-    const timelineItem = await this.executeQuery(timelineItemQuery, {
-      timelineItem: {
+  // Supported meeting type display names and their Dex API enum values:
+  // | Display Name      | Dex API Enum Value   |
+  // |-------------------|---------------------|
+  // | Note              | note                |
+  // | Call              | call                |
+  // | Email             | email               |
+  // | Text/Messaging    | text_messaging      |
+  // | Linkedin          | linkedin            |
+  // | Skype/Teams       | skype_teams         |
+  // | Slack             | slack               |
+  // | Coffee            | coffee              |
+  // | Networking        | networking          |
+  // | Party/Social      | party_social        |
+  // | Other             | other               |
+  // | Meal              | meal                |
+  // | Meeting           | meeting             |
+  // | Custom            | custom              |
+  //
+  // The mapping below allows any of these display names (case-insensitive, spaces/slashes allowed) or the exact enum value.
+  private static meetingTypeMap: Record<string, string> = {
+    'note': 'note',
+    'call': 'call',
+    'email': 'email',
+    'text_messaging': 'text_messaging',
+    'text/messaging': 'text_messaging',
+    'text messaging': 'text_messaging',
+    'linkedin': 'linkedin',
+    'skype_teams': 'skype_teams',
+    'skype/teams': 'skype_teams',
+    'skype teams': 'skype_teams',
+    'slack': 'slack',
+    'coffee': 'coffee',
+    'networking': 'networking',
+    'party_social': 'party_social',
+    'party/social': 'party_social',
+    'party social': 'party_social',
+    'other': 'other',
+    'meal': 'meal',
+    'meeting': 'meeting',
+    'custom': 'custom',
+  };
+
+  async createNote(contactId: string, note: string, eventTime?: string, meetingType?: string) {
+    // Allowed meeting types as per Dex UI and API
+    const allowedTypes = [
+      'note', 'call', 'email', 'text_messaging', 'linkedin', 'skype_teams', 'slack', 'coffee', 'networking', 'party_social', 'other', 'meal', 'meeting', 'custom'
+    ];
+    // Validate UUID format
+    if (!isValidUUID(contactId)) {
+      throw new Error(`Invalid UUID format for contactId: "${contactId}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    // Map meetingType to Dex API enum value if possible
+    let type = 'note';
+    if (meetingType) {
+      const normalized = meetingType.trim().toLowerCase().replace(/\s+/g, '_').replace(/\//g, '_');
+      type = DexAPIClient.meetingTypeMap[normalized] || DexAPIClient.meetingTypeMap[meetingType.toLowerCase()] || 'note';
+    }
+    if (!allowedTypes.includes(type)) type = 'note';
+    // Use REST API for note creation as per Dex docs
+    const payload = {
+      timeline_event: {
         note: note,
         event_time: eventTime || new Date().toISOString(),
-      }
-    });
-
-    // Then link it to the contact
-    const linkQuery = `
-      mutation LinkTimelineItemToContact($timelineItemContact: timeline_items_contacts_insert_input!) {
-        insert_timeline_items_contacts_one(object: $timelineItemContact) {
-          timeline_item_id
-          contact_id
+        meeting_type: type,
+        timeline_items_contacts: {
+          data: [{ contact_id: contactId }]
         }
       }
-    `;
-
-    await this.executeQuery(linkQuery, {
-      timelineItemContact: {
-        timeline_item_id: timelineItem.insert_timeline_items_one.id,
-        contact_id: contactId,
+    };
+    const response = await axios.post(
+      'https://api.getdex.com/api/rest/timeline_items',
+      payload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-hasura-dex-api-key': API_KEY,
+        },
       }
-    });
-
-    return timelineItem;
+    );
+    return response.data;
   }
 
   async updateNote(id: string, noteContent: string) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid UUID format for note ID: "${id}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       mutation UpdateNote($id: uuid!, $note: String!) {
         update_timeline_items_by_pk(pk_columns: {id: $id}, _set: {note: $note}) {
@@ -317,6 +390,11 @@ class DexAPIClient {
   }
 
   async deleteNote(id: string) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid UUID format for note ID: "${id}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       mutation DeleteNote($id: uuid!) {
         delete_timeline_items_by_pk(id: $id) {
@@ -329,6 +407,11 @@ class DexAPIClient {
 
   // Reminder operations
   async getRemindersByContact(contactId: string) {
+    // Validate UUID format
+    if (!isValidUUID(contactId)) {
+      throw new Error(`Invalid UUID format for contactId: "${contactId}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       query GetRemindersByContact($contactId: uuid!) {
         reminders_contacts(
@@ -402,6 +485,11 @@ class DexAPIClient {
   }
 
   async createReminder(contactId: string, text: string, dueDate: string, recurrence?: string) {
+    // Validate UUID format
+    if (!isValidUUID(contactId)) {
+      throw new Error(`Invalid UUID format for contactId: "${contactId}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const reminderQuery = `
       mutation CreateReminder($reminder: reminders_insert_input!) {
         insert_reminders_one(object: $reminder) {
@@ -446,6 +534,11 @@ class DexAPIClient {
   }
 
   async updateReminder(id: string, updates: { text?: string; due_at_date?: string; is_complete?: boolean; recurrence?: string }) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid UUID format: "${id}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+    
     const query = `
       mutation UpdateReminder($id: uuid!, $updates: reminders_set_input!) {
         update_reminders_by_pk(pk_columns: {id: $id}, _set: $updates) {
@@ -462,6 +555,18 @@ class DexAPIClient {
   }
 
   async deleteReminder(id: string) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid reminder ID format: "${id}". 
+      
+This appears to be a non-UUID identifier. To find the correct UUID for this reminder, please use:
+- find_reminders_by_partial_id with partialId: "${id}"
+- search_reminders to search by reminder text
+- get_all_reminders to see all reminders
+
+Expected UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
+
     const query = `
       mutation DeleteReminder($id: uuid!) {
         delete_reminders_by_pk(id: $id) {
@@ -473,7 +578,84 @@ class DexAPIClient {
   }
 
   async completeReminder(id: string) {
+    // Validate UUID format
+    if (!isValidUUID(id)) {
+      throw new Error(`Invalid UUID format: "${id}". Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`);
+    }
     return this.updateReminder(id, { is_complete: true });
+  }
+
+  // Helper method to find reminders by partial information
+  async findRemindersByPartialId(partialId: string) {
+    const query = `
+      query FindRemindersByPartialId {
+        reminders(
+          order_by: {created_at: desc},
+          limit: 50
+        ) {
+          id
+          text
+          due_at_date
+          is_complete
+          created_at
+          recurrence
+          reminders_contacts {
+            contact {
+              full_name
+              id
+            }
+          }
+        }
+      }
+    `;
+    const result = await this.executeQuery(query);
+    
+    // Filter results to show reminders whose ID contains the partial ID
+    // This can help users find the correct UUID
+    const lowerPartialId = partialId?.toLowerCase() || '';
+    return result.reminders.filter((reminder: any) => 
+      reminder.id?.includes(partialId) || 
+      reminder.text?.toLowerCase()?.includes(lowerPartialId)
+    );
+  }
+
+  // Helper method to find contacts by partial information
+  async findContactsByPartialId(partialId: string) {
+    const query = `
+      query FindContactsByPartialId {
+        contacts(
+          order_by: {updated_at: desc},
+          limit: 50
+        ) {
+          id
+          full_name
+          first_name
+          last_name
+          company
+          job_title
+          contact_emails {
+            email
+            label
+          }
+          contact_phone_numbers {
+            phone_number
+            label
+          }
+        }
+      }
+    `;
+    const result = await this.executeQuery(query);
+    
+    // Filter results to show contacts whose ID contains the partial ID
+    // or whose name/company contains the search term
+    const lowerPartialId = partialId?.toLowerCase() || '';
+    return result.contacts.filter((contact: any) => 
+      contact.id?.includes(partialId) || 
+      contact.full_name?.toLowerCase()?.includes(lowerPartialId) ||
+      contact.first_name?.toLowerCase()?.includes(lowerPartialId) ||
+      contact.last_name?.toLowerCase()?.includes(lowerPartialId) ||
+      contact.company?.toLowerCase()?.includes(lowerPartialId)
+    );
   }
 
   // Search operations
@@ -569,6 +751,17 @@ class DexMCPServer {
             },
           },
           {
+            name: 'find_contacts_by_partial_id',
+            description: 'Find contacts by partial ID or identifying information - useful when you have a non-UUID ID that needs to be converted',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                partialId: { type: 'string', description: 'Partial ID or identifying information to search for in contact IDs and names' },
+              },
+              required: ['partialId'],
+            },
+          },
+          {
             name: 'create_contact',
             description: 'Create a new contact',
             inputSchema: {
@@ -646,13 +839,20 @@ class DexMCPServer {
           },
           {
             name: 'create_note',
-            description: 'Create a new note for a contact',
+            description: 'Create a new note for a contact. Optionally specify the note/meeting type (e.g., note, call, email, text_messaging, etc.)',
             inputSchema: {
               type: 'object',
               properties: {
                 contactId: { type: 'string', description: 'Contact ID' },
                 content: { type: 'string', description: 'Note content' },
                 eventTime: { type: 'string', description: 'Event time (ISO format, optional)' },
+                meetingType: {
+                  type: 'string',
+                  description: 'Type of note/meeting (see Dex UI: note, call, email, text_messaging, linkedin, skype_teams, slack, coffee, networking, party_social, other, meal, meeting, custom)',
+                  enum: [
+                    'note', 'call', 'email', 'text_messaging', 'linkedin', 'skype_teams', 'slack', 'coffee', 'networking', 'party_social', 'other', 'meal', 'meeting', 'custom'
+                  ]
+                }
               },
               required: ['contactId', 'content'],
             },
@@ -715,6 +915,17 @@ class DexMCPServer {
             },
           },
           {
+            name: 'find_reminders_by_partial_id',
+            description: 'Find reminders by partial ID or text content - useful when you have a numeric ID that needs to be converted to UUID',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                partialId: { type: 'string', description: 'Partial ID or text to search for in reminder IDs and text content' },
+              },
+              required: ['partialId'],
+            },
+          },
+          {
             name: 'create_reminder',
             description: 'Create a new reminder for a contact',
             inputSchema: {
@@ -765,6 +976,29 @@ class DexMCPServer {
               required: ['id'],
             },
           },
+          // Helper tools for finding correct UUIDs
+          {
+            name: 'find_reminders_by_partial_id',
+            description: 'Find reminders by partial ID or text content. Use this when you have an invalid UUID and need to find the correct reminder UUID.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                partial_id: { type: 'string', description: 'Partial ID, text content, or any identifying information for the reminder' },
+              },
+              required: ['partial_id'],
+            },
+          },
+          {
+            name: 'find_contacts_by_partial_id',
+            description: 'Find contacts by partial ID, name, or company. Use this when you have an invalid UUID and need to find the correct contact UUID.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                partial_id: { type: 'string', description: 'Partial ID, name, company, or any identifying information for the contact' },
+              },
+              required: ['partial_id'],
+            },
+          },
         ] as Tool[],
       };
     });
@@ -811,6 +1045,19 @@ class DexMCPServer {
                 {
                   type: 'text',
                   text: JSON.stringify(searchResults, null, 2),
+                },
+              ],
+            };
+
+          case 'find_contacts_by_partial_id':
+            const foundContacts = await this.dexClient.findContactsByPartialId((args as any).partialId);
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: foundContacts.length > 0 
+                    ? `Found ${foundContacts.length} contacts:\n${JSON.stringify(foundContacts, null, 2)}`
+                    : `No contacts found matching "${(args as any).partialId}". Please check your search term or try a different approach.`,
                 },
               ],
             };
@@ -897,7 +1144,8 @@ class DexMCPServer {
             const newNote = await this.dexClient.createNote(
               (args as any).contactId,
               (args as any).content,
-              (args as any).eventTime
+              (args as any).eventTime,
+              (args as any).meetingType // pass through
             );
             return {
               content: [
@@ -967,6 +1215,19 @@ class DexMCPServer {
               ],
             };
 
+          case 'find_reminders_by_partial_id':
+            const foundReminders = await this.dexClient.findRemindersByPartialId((args as any).partialId);
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: foundReminders.length > 0 
+                    ? `Found ${foundReminders.length} reminders:\n${JSON.stringify(foundReminders, null, 2)}`
+                    : `No reminders found matching "${(args as any).partialId}". Please check your search term or try a different approach.`,
+                },
+              ],
+            };
+
           case 'create_reminder':
             const newReminder = await this.dexClient.createReminder(
               (args as any).contactId,
@@ -1021,6 +1282,73 @@ class DexMCPServer {
                 },
               ],
             };
+
+          // Helper tool handlers
+          case 'find_reminders_by_partial_id':
+            try {
+              const foundReminders = await this.dexClient.findRemindersByPartialId((args as any).partial_id);
+              if (foundReminders.length === 0) {
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `No reminders found matching "${(args as any).partial_id}". Try a different search term.`,
+                    },
+                  ],
+                };
+              }
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Found ${foundReminders.length} reminder(s) matching "${(args as any).partial_id}":\n\n` +
+                          foundReminders.map((r: any) => `ID: ${r.id}\nText: ${r.text}\nDue: ${r.due_at_date}\nComplete: ${r.is_complete}\n---`).join('\n'),
+                  },
+                ],
+              };
+            } catch (error) {
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Error searching reminders: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                  },
+                ],
+              };
+            }
+
+          case 'find_contacts_by_partial_id':
+            try {
+              const foundContacts = await this.dexClient.findContactsByPartialId((args as any).partial_id);
+              if (foundContacts.length === 0) {
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `No contacts found matching "${(args as any).partial_id}". Try a different search term.`,
+                    },
+                  ],
+                };
+              }
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Found ${foundContacts.length} contact(s) matching "${(args as any).partial_id}":\n\n` +
+                          foundContacts.map((c: any) => `ID: ${c.id}\nName: ${c.full_name}\nCompany: ${c.company || 'N/A'}\n---`).join('\n'),
+                  },
+                ],
+              };
+            } catch (error) {
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Error searching contacts: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                  },
+                ],
+              };
+            }
 
           default:
             throw new Error(`Unknown tool: ${name}`);
