@@ -1,14 +1,46 @@
 #!/usr/bin/env node
 
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+import dotenv from 'dotenv';
+import path from 'path';
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
-  ListToolsRequestSchema,
-  Tool,
+  ListToolsRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
-import axios, { AxiosInstance } from 'axios';
+import axios from 'axios';
+type AxiosInstance = ReturnType<typeof axios.create>;
 import { z } from 'zod';
+import minimist from 'minimist';
+
+// Top-level error handlers for robust production logging
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception:', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled Rejection:', reason);
+  process.exit(1);
+});
+
+// Debug: Print current working directory and .env location
+console.error('[DEBUG] MCP server entrypoint reached');
+console.error('[DEBUG] process.cwd():', process.cwd());
+console.error('[DEBUG] process.argv:', process.argv);
+console.error('[DEBUG] env keys:', Object.keys(process.env));
+console.error('[DEBUG] NODE_ENV:', process.env.NODE_ENV);
+console.error('[DEBUG] .env loaded:', !!process.env.DEX_API_KEY);
+if (process.env.DEX_API_KEY) {
+  const masked = process.env.DEX_API_KEY.slice(0, 4) + '...' + process.env.DEX_API_KEY.slice(-4);
+  console.error('[DEBUG] DEX_API_KEY (masked):', masked);
+}
 
 // Dex API configuration
 const DEX_API_BASE_URL = 'https://api.getdex.com/v1/graphql';
@@ -34,21 +66,6 @@ const ContactSchema = z.object({
   company: z.string().optional(),
   job_title: z.string().optional(),
   description: z.string().optional(),
-});
-
-const NoteSchema = z.object({
-  id: z.string().optional(),
-  note: z.string(),
-  event_time: z.string().optional(),
-  meeting_type: z.string().optional(),
-});
-
-const ReminderSchema = z.object({
-  id: z.string().optional(),
-  text: z.string(),
-  due_at_date: z.string(),
-  recurrence: z.string().optional(),
-  is_complete: z.boolean().optional(),
 });
 
 export class DexAPIClient {
@@ -352,28 +369,40 @@ export class DexAPIClient {
       type = DexAPIClient.meetingTypeMap[normalized] || DexAPIClient.meetingTypeMap[meetingType.toLowerCase()] || 'note';
     }
     if (!allowedTypes.includes(type)) type = 'note';
-    // Use REST API for note creation as per Dex docs
+    // Always include meeting_type (default to 'note' if not provided)
     const payload = {
       timeline_event: {
         note: note,
         event_time: eventTime || new Date().toISOString(),
-        meeting_type: type,
+        meeting_type: type, // always present
         timeline_items_contacts: {
           data: [{ contact_id: contactId }]
         }
       }
     };
-    const response = await axios.post(
-      'https://api.getdex.com/api/rest/timeline_items',
-      payload,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-hasura-dex-api-key': API_KEY,
-        },
+    // Log outgoing payload for debugging
+    console.error('[DexAPIClient.createNote] Outgoing payload to Dex:', JSON.stringify(payload, null, 2));
+    try {
+      const response = await axios.post(
+        'https://api.getdex.com/api/rest/timeline_items',
+        payload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-hasura-dex-api-key': API_KEY,
+          },
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      // Log Dex API error response for debugging
+      if (error.response) {
+        console.error('[DexAPIClient.createNote] Dex API error response:', JSON.stringify(error.response.data, null, 2));
+      } else {
+        console.error('[DexAPIClient.createNote] Error:', error.message);
       }
-    );
-    return response.data;
+      throw error;
+    }
   }
 
   async updateNote(id: string, noteContent: string) {
@@ -479,7 +508,12 @@ export class DexAPIClient {
           recurrence
           reminders_contacts {
             contact {
-             
+              full_name
+              id
+            }
+          }
+        }
+      }
     `;
     return this.executeQuery(query, { searchTerm: `%${searchTerm}%` });
   }
@@ -999,7 +1033,7 @@ class DexMCPServer {
               required: ['partial_id'],
             },
           },
-        ] as Tool[],
+        ],
       };
     });
 
@@ -1049,18 +1083,33 @@ class DexMCPServer {
               ],
             };
 
-          case 'find_contacts_by_partial_id':
-            const foundContacts = await this.dexClient.findContactsByPartialId((args as any).partialId);
+          // Robust handler for find_contacts_by_partial_id
+          case 'find_contacts_by_partial_id': {
+            // Accept both partialId and partial_id for compatibility
+            const partialId = (args as any).partialId || (args as any).partial_id;
+            if (!partialId) {
+              return {
+                content: [
+                  { type: 'text', text: 'Error: partialId or partial_id argument is required.' },
+                ],
+                isError: true,
+              };
+            }
+            const foundContacts = await this.dexClient.findContactsByPartialId(partialId);
+            if (!foundContacts.length) {
+              return {
+                content: [
+                  { type: 'text', text: `No contacts found matching "${partialId}". Try a different search term.` },
+                ],
+              };
+            }
             return {
               content: [
-                {
-                  type: 'text',
-                  text: foundContacts.length > 0 
-                    ? `Found ${foundContacts.length} contacts:\n${JSON.stringify(foundContacts, null, 2)}`
-                    : `No contacts found matching "${(args as any).partialId}". Please check your search term or try a different approach.`,
-                },
+                { type: 'text', text: `Found ${foundContacts.length} contact(s) matching "${partialId}":\n\n` +
+                  foundContacts.map((c: any) => `ID: ${c.id}\nName: ${c.full_name}\nCompany: ${c.company || 'N/A'}\n---`).join('\n') },
               ],
             };
+          }
 
           case 'create_contact':
             const validatedContact = ContactSchema.parse({
@@ -1141,20 +1190,46 @@ class DexMCPServer {
             };
 
           case 'create_note':
-            const newNote = await this.dexClient.createNote(
-              (args as any).contactId,
-              (args as any).content,
-              (args as any).eventTime,
-              (args as any).meetingType // pass through
-            );
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: `Note created successfully: ${JSON.stringify(newNote, null, 2)}`,
-                },
-              ],
-            };
+            try {
+              const newNote = await this.dexClient.createNote(
+                (args as any).contactId,
+                (args as any).content,
+                (args as any).eventTime,
+                (args as any).meetingType // pass through
+              );
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Note created successfully: ${JSON.stringify(newNote, null, 2)}`,
+                  },
+                ],
+              };
+            } catch (error: any) {
+              // Dex API returns check constraint violation for missing/invalid meeting_type
+              const msg = error?.response?.data?.errors?.[0]?.message || error?.message || String(error);
+              if (msg.includes('check constraint') && msg.includes('meeting_type')) {
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Error: The Dex API requires a valid meeting type for every note. Please provide a meetingType argument with one of the following values: note, call, email, text_messaging, linkedin, skype_teams, slack, coffee, networking, party_social, other, meal, meeting, custom.',
+                    },
+                  ],
+                  isError: true,
+                };
+              }
+              // fallback: surface original error
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `Error creating note: ${msg}`,
+                  },
+                ],
+                isError: true,
+              };
+            }
 
           case 'update_note':
             const updatedNote = await this.dexClient.updateNote((args as any).id, (args as any).content);
@@ -1215,18 +1290,33 @@ class DexMCPServer {
               ],
             };
 
-          case 'find_reminders_by_partial_id':
-            const foundReminders = await this.dexClient.findRemindersByPartialId((args as any).partialId);
+          // Robust handler for find_reminders_by_partial_id
+          case 'find_reminders_by_partial_id': {
+            // Accept both partialId and partial_id for compatibility
+            const partialId = (args as any).partialId || (args as any).partial_id;
+            if (!partialId) {
+              return {
+                content: [
+                  { type: 'text', text: 'Error: partialId or partial_id argument is required.' },
+                ],
+                isError: true,
+              };
+            }
+            const foundReminders = await this.dexClient.findRemindersByPartialId(partialId);
+            if (!foundReminders.length) {
+              return {
+                content: [
+                  { type: 'text', text: `No reminders found matching "${partialId}". Try a different search term.` },
+                ],
+              };
+            }
             return {
               content: [
-                {
-                  type: 'text',
-                  text: foundReminders.length > 0 
-                    ? `Found ${foundReminders.length} reminders:\n${JSON.stringify(foundReminders, null, 2)}`
-                    : `No reminders found matching "${(args as any).partialId}". Please check your search term or try a different approach.`,
-                },
+                { type: 'text', text: `Found ${foundReminders.length} reminder(s) matching "${partialId}":\n\n` +
+                  foundReminders.map((r: any) => `ID: ${r.id}\nText: ${r.text}\nDue: ${r.due_at_date}\nComplete: ${r.is_complete}\n---`).join('\n') },
               ],
             };
+          }
 
           case 'create_reminder':
             const newReminder = await this.dexClient.createReminder(
@@ -1283,73 +1373,6 @@ class DexMCPServer {
               ],
             };
 
-          // Helper tool handlers
-          case 'find_reminders_by_partial_id':
-            try {
-              const foundReminders = await this.dexClient.findRemindersByPartialId((args as any).partial_id);
-              if (foundReminders.length === 0) {
-                return {
-                  content: [
-                    {
-                      type: 'text',
-                      text: `No reminders found matching "${(args as any).partial_id}". Try a different search term.`,
-                    },
-                  ],
-                };
-              }
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: `Found ${foundReminders.length} reminder(s) matching "${(args as any).partial_id}":\n\n` +
-                          foundReminders.map((r: any) => `ID: ${r.id}\nText: ${r.text}\nDue: ${r.due_at_date}\nComplete: ${r.is_complete}\n---`).join('\n'),
-                  },
-                ],
-              };
-            } catch (error) {
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: `Error searching reminders: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                  },
-                ],
-              };
-            }
-
-          case 'find_contacts_by_partial_id':
-            try {
-              const foundContacts = await this.dexClient.findContactsByPartialId((args as any).partial_id);
-              if (foundContacts.length === 0) {
-                return {
-                  content: [
-                    {
-                      type: 'text',
-                      text: `No contacts found matching "${(args as any).partial_id}". Try a different search term.`,
-                    },
-                  ],
-                };
-              }
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: `Found ${foundContacts.length} contact(s) matching "${(args as any).partial_id}":\n\n` +
-                          foundContacts.map((c: any) => `ID: ${c.id}\nName: ${c.full_name}\nCompany: ${c.company || 'N/A'}\n---`).join('\n'),
-                  },
-                ],
-              };
-            } catch (error) {
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: `Error searching contacts: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                  },
-                ],
-              };
-            }
-
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -1367,6 +1390,73 @@ class DexMCPServer {
     });
   }
 
+  /**
+   * Public method to handle a tool call by name and arguments (for CLI/testing)
+   */
+  async handleToolCall(toolName: string, toolArgs: any) {
+    // Replicate the logic from setRequestHandler
+    switch (toolName) {
+      case 'get_contacts':
+        return await this.dexClient.getContacts(toolArgs.limit || 50, toolArgs.offset || 0);
+      case 'get_contact_by_id':
+        return await this.dexClient.getContactById(toolArgs.id);
+      case 'search_contacts':
+        return await this.dexClient.searchContacts(toolArgs.searchTerm);
+      case 'create_contact':
+        return await this.dexClient.createContact(toolArgs);
+      case 'update_contact':
+        return await this.dexClient.updateContact(toolArgs.id, toolArgs);
+      case 'delete_contact':
+        return await this.dexClient.deleteContact(toolArgs.id);
+      case 'get_notes_by_contact':
+        return await this.dexClient.getNotesByContact(toolArgs.contactId);
+      case 'get_all_notes':
+        return await this.dexClient.getAllNotes(toolArgs.limit || 50, toolArgs.offset || 0);
+      case 'search_notes':
+        return await this.dexClient.searchNotes(toolArgs.searchTerm);
+      case 'create_note':
+        return await this.dexClient.createNote(toolArgs.contactId, toolArgs.content, toolArgs.eventTime, toolArgs.meetingType);
+      case 'update_note':
+        return await this.dexClient.updateNote(toolArgs.id, toolArgs.content);
+      case 'delete_note':
+        return await this.dexClient.deleteNote(toolArgs.id);
+      case 'get_reminders_by_contact':
+        return await this.dexClient.getRemindersByContact(toolArgs.contactId);
+      case 'get_all_reminders':
+        return await this.dexClient.getAllReminders(toolArgs.limit || 50, toolArgs.offset || 0);
+      case 'search_reminders':
+        return await this.dexClient.searchReminders(toolArgs.searchTerm);
+      case 'create_reminder':
+        return await this.dexClient.createReminder(toolArgs.contactId, toolArgs.text, toolArgs.dueDate, toolArgs.recurrence);
+      case 'update_reminder':
+        return await this.dexClient.updateReminder(toolArgs.id, toolArgs);
+      case 'complete_reminder':
+        return await this.dexClient.completeReminder(toolArgs.id);
+      case 'delete_reminder':
+        return await this.dexClient.deleteReminder(toolArgs.id);
+      default:
+        throw new Error(`Unknown tool: ${toolName}`);
+    }
+  }
+
+  /**
+   * Public method to call a tool by name and arguments (for CLI/testing)
+   */
+  async callTool(toolName: string, toolArgs: any) {
+    // Use the same handler logic as the MCP server
+    const request = {
+      method: 'tools/call',
+      params: { name: toolName, arguments: toolArgs },
+      id: 1,
+      jsonrpc: '2.0',
+    };
+    // The handler is set on the server instance
+    // Find the handler for CallToolRequestSchema
+    const handler = (this.server as any)._requestHandlers?.find((h: any) => h && h._zodSchema === CallToolRequestSchema);
+    if (!handler) throw new Error('Tool handler not found.');
+    return handler(request);
+  }
+
   async run() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -1374,5 +1464,38 @@ class DexMCPServer {
   }
 }
 
-const server = new DexMCPServer();
-server.run().catch(console.error);
+// CLI one-off tool-call support
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  console.error('[INFO] Entry: ESM main module');
+  const argv = minimist(process.argv.slice(2));
+  if (argv['tool-call'] && argv['args']) {
+    console.error('[INFO] Running CLI tool-call:', argv['tool-call']);
+    (async () => {
+      const toolName = argv['tool-call'];
+      let toolArgs;
+      try {
+        toolArgs = typeof argv['args'] === 'string' ? JSON.parse(argv['args']) : argv['args'];
+      } catch {
+        console.error('Invalid JSON for --args:', argv['args']);
+        process.exit(1);
+      }
+      const server = new DexMCPServer();
+      try {
+        const result = await server.handleToolCall(toolName, toolArgs);
+        console.log(JSON.stringify(result, null, 2));
+        process.exit(0);
+      } catch (err) {
+        console.error('Error running tool:', err);
+        process.exit(1);
+      }
+    })();
+  } else {
+    console.error('[INFO] Starting Dex MCP server (agent mode)');
+    const server = new DexMCPServer();
+    server.run().catch((err) => {
+      console.error('[FATAL] MCP server failed to start:', err);
+      process.exit(1);
+    });
+  }
+}

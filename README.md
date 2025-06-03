@@ -1,5 +1,15 @@
 # Dex MCP Server
 
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue)](https://github.com/alpabon73/dex-mcp-server/releases/tag/v1.0.0)
+
+> **v1.0.0 is now released!**
+> - See [RELEASE-NOTES.md](./RELEASE-NOTES.md) and [GitHub Releases](https://github.com/alpabon73/dex-mcp-server/releases) for highlights and upgrade info.
+> - **How to upgrade:**
+>   1. Pull the latest code: `git pull --rebase origin main`
+>   2. Ensure your `.env` file is present and contains a valid `DEX_API_KEY`.
+>   3. Use the `kill-dex-mcp-server.sh` script before agent startup if needed.
+>   4. See `copilot-instructions.md` for agent/CLI usage and best practices.
+
 A Model Context Protocol (MCP) server that provides AI agents with comprehensive contact relationship management capabilities through the Dex API.
 
 ## Features
@@ -213,3 +223,12 @@ For issues related to:
 - **Dex API**: Check [Dex documentation](https://docs.getdex.com)
 - **MCP Protocol**: See [MCP specification](https://spec.modelcontextprotocol.io)
 - **This server**: Open an issue in this repository
+
+---
+
+## How to report issues or contribute
+
+- Found a bug or have a feature request? [Open an issue](https://github.com/alpabon73/dex-mcp-server/issues)
+- Want to contribute? See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+- Security concerns? See [SECURITY.md](./SECURITY.md) for responsible disclosure.
+- For release notes and upgrade info, see [RELEASE-NOTES.md](./RELEASE-NOTES.md) and [CHANGELOG.md](./CHANGELOG.md).

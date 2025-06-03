@@ -14,7 +14,7 @@ function getMappedMeetingType(input: unknown): string {
   let type = 'note';
   if (input) {
     const normalized = String(input).trim().toLowerCase().replace(/\s+/g, '_').replace(/\//g, '_');
-    // @ts-ignore
+    // @ts-expect-error: DexAPIClient.meetingTypeMap is intentionally accessed with normalized string keys for test coverage
     type = DexAPIClient.meetingTypeMap[normalized] || DexAPIClient.meetingTypeMap[String(input).toLowerCase()] || 'note';
   }
   if (!allowedTypes.includes(type)) type = 'note';
