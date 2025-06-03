@@ -12,7 +12,12 @@ import { z } from 'zod';
 
 // Dex API configuration
 const DEX_API_BASE_URL = 'https://api.getdex.com/v1/graphql';
-const API_KEY = '8470e661c4efe0f';
+// IMPORTANT: The API key is now loaded from the environment for security.
+// Create a .env file with: DEX_API_KEY=your-key-here
+const API_KEY = process.env.DEX_API_KEY;
+if (!API_KEY) {
+  throw new Error('DEX_API_KEY environment variable is not set. Please set it in your environment or .env file.');
+}
 
 // UUID validation function
 const isValidUUID = (uuid: string): boolean => {
@@ -474,12 +479,7 @@ export class DexAPIClient {
           recurrence
           reminders_contacts {
             contact {
-              full_name
-              id
-            }
-          }
-        }
-      }
+             
     `;
     return this.executeQuery(query, { searchTerm: `%${searchTerm}%` });
   }

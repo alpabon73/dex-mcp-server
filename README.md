@@ -51,6 +51,22 @@ const API_KEY = 'your-dex-api-key-here';
 npm run build
 ```
 
+## Environment Variables
+
+This project requires a Dex API key. **Never commit your real API key to a public repository.**
+
+1. Copy `.env.example` to `.env`:
+   ```sh
+   cp .env.example .env
+   ```
+2. Edit `.env` and set your real Dex API key:
+   ```
+   DEX_API_KEY=your-dex-api-key-here
+   ```
+3. The server will not start unless `DEX_API_KEY` is set in your environment or `.env` file.
+
+**.env is already in .gitignore and will never be committed.**
+
 ## Usage
 
 ### Standalone Usage
