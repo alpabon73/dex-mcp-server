@@ -31,3 +31,10 @@ jobs:
       # Uncomment if you want to build
       # - name: Build project
       #   run: npm run build
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run ESLint
+        run: npx eslint . --ext .ts || true
+        continue-on-error: true

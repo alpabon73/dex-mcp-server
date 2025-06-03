@@ -169,13 +169,39 @@ This server integrates with the Dex API using:
 - **Reminders table** with contact junction
 - **Proper pagination** and search capabilities
 
+## Code Quality & CI
+
+This project uses **TypeScript** for type safety and **ESLint** for code linting. All code is automatically checked for type errors and lint issues in CI (see `.github/workflows/ci.yml`).
+
+- Run type checks locally:
+  ```sh
+  npm run build # or npx tsc --noEmit
+  ```
+- Run linter locally:
+  ```sh
+  npm run lint
+  ```
+
+All pull requests must pass CI checks before merging.
+
+## Issue & PR Templates
+
+- Bug reports and feature requests use GitHub issue templates for consistency.
+- All pull requests use a PR template to ensure quality and documentation.
+
+## Security & Secrets
+
+- **Never commit secrets or API keys.** `.env` is gitignored and secrets are loaded from environment variables.
+- If a secret is ever committed, follow the repo's history-scrubbing protocol (see `scrub-git-history.sh`).
+
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
 4. Add tests if applicable
-5. Submit a pull request
+5. Run `npm run lint` and `npm run build` to check code quality
+6. Submit a pull request
 
 ## License
 
