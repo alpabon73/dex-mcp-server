@@ -15,7 +15,7 @@
     "axios": "^1.7.0",
     "dotenv": "^16.5.0",
     "minimist": "^1.2.8",
-    "zod": "^3.23.0"
+    "zod": "^3.25.65"
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",
